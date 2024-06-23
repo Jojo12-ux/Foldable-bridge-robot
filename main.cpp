@@ -19,21 +19,27 @@
 // DEFINITION OF VARIABLES
 
 // Number of revolutions to 90 degree turn
-const float FIRST_FORWARD_REVOLUTIONS = 3;
+const float FIRST_FORWARD_REVOLUTIONS = 5;
 // Number of revolutions required to make the 90 degrees
 const float REV_TO_MAKE_TURN = 1;
 // Number of revolutions to table edge
-const float SECOND_FORWARD_REVOLUTIONS = 6;
+const float SECOND_FORWARD_REVOLUTIONS = 10;
 // Number of revolutions required to extend bridge
 const float REVOLUTIONS_TO_EXTEND_BRIDGE = 10;
 // Number of revolutions to retract bridge
 const float REVOLUTIONS_TO_RETRACT_BRIDGE = 5;
 // Number of reverse revolutions
-const float REVERSE_REVOLUTIONS = 3;
+const float REVERSE_REVOLUTIONS = 7;
 // Number of revolutions to cross
-const float REVOLUTIONS_TO_CROSS = 10;
+const float REVOLUTIONS_TO_CROSS = 15;
 // Number of revolutions to complete task
-const float REVOLUTIONS_TO_COMPLETE_TASK = 15;
+const float REVOLUTIONS_TO_COMPLETE_TASK = 20;
+// Velocity of the DC motors to move to 50mm table edge
+const float approach_speed = 0.05f;
+// Threshold of IR analog sensor to stop DC motors
+const float threshold = 20;
+// Revolutions to reach the edge of the table
+float REV_TO_EDGE = 0;
 
 // this variable will be toggled via the user button (blue button) and 
 // decides whether to execute the main task or not
@@ -77,6 +83,7 @@ DCMotor motor_M3(PB_PWM_M3, PB_ENC_A_M3, PB_ENC_B_M3, gear_ratio_M3, kn_M3, volt
 // define a variable to store measurement (in mV & cm)
 float ir_distance_mV = 0.0f; 
 float ir_distance_cm = 0.0f; 
+float ir_distance_cm_candidate = 0.0f;
 
 // SERVO MOTORS
 
@@ -99,6 +106,10 @@ float REVERSE = 0;
 float position_M1;
 float position_M2;
 
+// create FastPWM object to command motor M1 & M2
+FastPWM pwm_M1(PB_PWM_M1); 
+FastPWM pwm_M2(PB_PWM_M2);
+
 // Rotation - making the 90 degrees turn
 uint8_t rotational_motion(float postion_M1, float position_M2, float num_rev);
 
@@ -107,6 +118,9 @@ uint8_t extend_bridge (float rev_extension);
 
 // Retracting bridge after crossing the gap
 uint8_t retract_bridge (float rev_retraction);
+
+// Using analog IR position sensor to detect table edge
+uint8_t translation_with_ir_control(float ir_distance_cm, float velocity, float threshold);
 
 // Definition and declaration of variables
 uint8_t turn_reached = 0;
@@ -117,6 +131,9 @@ uint8_t bridge_crossed = 0;
 uint8_t bridge_retracted = 0;
 uint8_t task_completed = 0;
 uint8_t reverse_completed = 0;
+uint8_t edge_detected = 0;
+
+
 
 // main() runs in its own thread in the OS
 int main()
@@ -129,6 +146,7 @@ int main()
             FIRST_FORWARD_Xmm,
             MAKING_90_DEGREES_TURN,
             SECOND_FORWARD_Xmm,
+            MOVE_TO_50mm,
             EXTEND_BRIDGE,
             REVERSE_Xmm,
             CROSS_BRIDGE,
@@ -143,7 +161,7 @@ int main()
     // simple approach to repeatedly execute main
     // define main task period time in ms e.g. 20 ms, therefore
     // the main task will run 50 times per second
-    const int main_task_period_ms = 200; 
+    const int main_task_period_ms = 50; 
     // create Timer object which we use to run the main task 
     // every main_task_period_ms                             
     Timer main_task_timer;              
@@ -207,6 +225,20 @@ int main()
     float ir_distance_max = 30.0f;
 
 
+    // SERVO MOTORS
+    // enable the servos and move it to zero
+    if (!servo_D0.isEnabled())
+        servo_D0.enable();
+    // enable the servo and move it to the center
+    if (!servo_D0.isEnabled()) {
+        servo_D0.enable(1.0f);
+        } 
+    // command the servos
+    servo_D0.setNormalisedPulseWidth(servo_input);
+    //servo_D0.calibratePulseMinMax(0, 180);
+    servo_D0.calibratePulseMinMax(servo_D0_ang_min, servo_D0_ang_max);
+    // default acceleration of the servo motion profile is 1.0e6f
+    servo_D0.setMaxAcceleration(0.3f);
 
      // start timer
     main_task_timer.start();
@@ -217,33 +249,8 @@ int main()
         if (do_execute_main_task) {
 
             // LED
-
             // toggling the user led
             led1 = !led1;
-
-            // SERVO MOTORS
-             // enable the servos and move it to zero
-            if (!servo_D0.isEnabled())
-            servo_D0.enable();
-           // enable the servo and move it to the center
-             if (!servo_D0.isEnabled()) {
-            servo_D0.enable(1.0f);
-               } 
-            // command the servos
-            servo_D0.setNormalisedPulseWidth(servo_input);
-            //servo_D0.calibratePulseMinMax(0, 180);
-            servo_D0.calibratePulseMinMax(servo_D0_ang_min, servo_D0_ang_max);
-            // default acceleration of the servo motion profile is 1.0e6f
-             servo_D0.setMaxAcceleration(0.3f);
-
-             // ANALOG IR POSITION SENSOR
-
-            // read analog input
-                ir_distance_mV = 1.0e3f * ir_analog_in.read() * 3.3f;
-                float ir_distance_cm_candidate = ir_sensor_compensation(ir_distance_mV);
-                // read us sensor distance, only valid measurements will update us_distance_cm
-                if (ir_distance_cm_candidate > 0.0f) {
-                ir_distance_cm = ir_distance_cm_candidate;
 
              // STATE MACHINE
 
@@ -262,11 +269,12 @@ int main()
                 case RobotState::FIRST_FORWARD_Xmm:
                 {
                     printf("FIRST_FORWARD_Xmm\n");
-                    turn_reached = translation_motion(FIRST_FORWARD_REVOLUTIONS, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, REV_TO_MAKE_TURN);
+                    turn_reached = translation_motion(FIRST_FORWARD_REVOLUTIONS, FORWARD, &position_M1, &position_M2, 0.0f, 0.0f);
                     
                     if (turn_reached)
                     {
                        robot_state =  RobotState::MAKING_90_DEGREES_TURN;
+                       
                     }
                       
                     break;
@@ -295,16 +303,52 @@ int main()
                     if (reached_50mm_from_edge)
                     {
                         reached_50mm_from_edge = 0;
-                        robot_state =  RobotState::EXTEND_BRIDGE;
+                        REV_TO_EDGE  = SECOND_FORWARD_REVOLUTIONS;
+                        robot_state =  RobotState::MOVE_TO_50mm;
                        
                     }
                     
                     break;
                 }
+
+                case RobotState::MOVE_TO_50mm:
+                    printf("MOVE TO 50mm\n");
+
+                   ir_distance_mV = 1.0e3f * ir_analog_in.read() * 3.3f;
+                   ir_distance_cm_candidate = ir_sensor_compensation(ir_distance_mV);
+
+                    if(ir_distance_cm_candidate > 0.0f)
+                    {
+                        ir_distance_cm = ir_distance_cm_candidate;
+                    }
+
+                    if(ir_distance_cm < threshold)
+                    {
+                        REV_TO_EDGE  = REV_TO_EDGE  + approach_speed;
+                        edge_detected = translation_motion(REV_TO_EDGE , FORWARD, &position_M1, &position_M2,REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN );
+                        printf("distance: %f\n", ir_distance_cm);
+                    }
+
+                    if(ir_distance_cm > threshold)
+                    {
+                        robot_state =  RobotState::EXTEND_BRIDGE;
+                    }
+
+                    //edge_detected = translation_with_ir_control(ir_distance_cm, velocity, threshold);
+                    //printf("distance: %f\n", ir_distance_cm);
+
+                   // if (edge_detected)
+                    //{
+                      //  robot_state =  RobotState::EXTEND_BRIDGE;
+                    //}
+
+                    break;
+
                 case RobotState::EXTEND_BRIDGE:
                     printf("EXTEND_BRIDGE\n");
 
                     bridge_extended = extend_bridge(REVOLUTIONS_TO_EXTEND_BRIDGE);
+                    bridge_extended = 1; //@TODO remove when motor is connected
                     if (bridge_extended)
                     {
                         bridge_extended = 0;
@@ -338,6 +382,7 @@ int main()
                 case RobotState::RETRACT_BRIDGE:
                     printf("RETRACT_BRIDGE\n");
                      bridge_retracted = retract_bridge(REVOLUTIONS_TO_RETRACT_BRIDGE);
+                     bridge_retracted = 1; //@TODO remove when motor is connected
                     if (bridge_retracted)
                     {
                         bridge_retracted = 0;
@@ -358,6 +403,8 @@ int main()
                 case RobotState::BUZZER_SLEEP:
                     printf("BUZZER_SLEEP\n");
 
+                    toggle_do_execute_main_fcn();
+
                     break;
                 default:
                     break;
@@ -375,19 +422,17 @@ int main()
                 enable_motors = 0;
                 ir_distance_cm = 0.0f;
                 motor_M1.enableMotionPlanner(true);
-                robot_state = RobotState::INITIAL;
+               // robot_state = RobotState::INITIAL;
                  }
     
         }
-
-        
 
         // read timer and make the main thread sleep for the remaining time span (non blocking)
         int main_task_elapsed_time_ms = std::chrono::duration_cast<std::chrono::milliseconds>(main_task_timer.elapsed_time()).count();
         thread_sleep_for(main_task_period_ms - main_task_elapsed_time_ms);
       }
 
-   }
+   
 }
 
 void toggle_do_execute_main_fcn()
@@ -481,6 +526,27 @@ uint8_t retract_bridge (float rev_retraction)
      printf(" DC Motor Rotations: %f\n", motor_M3.getRotation());
     if ((motor_M3.getRotation() <= 2.51f))
     {
+        return 1;
+    }
+    return 0;
+}
+
+uint8_t translation_with_ir_control(float ir_distance_cm, float velocity, float threshold)
+{   
+    // apply 6V to the motor
+    pwm_M1.write(0.75f);
+    pwm_M2.write(0.75f);
+
+    if(ir_distance_cm < threshold)
+    {
+         pwm_M1.write(velocity);
+         pwm_M2.write(velocity);
+    }
+
+    if(ir_distance_cm >= threshold)
+    {
+         pwm_M1.write(0.5f);
+        pwm_M2.write(0.5f);
         return 1;
     }
     return 0;
