@@ -19,27 +19,33 @@
 // DEFINITION OF VARIABLES
 
 // Number of revolutions to 90 degree turn
-const float FIRST_FORWARD_REVOLUTIONS = 5;
+float FIRST_FORWARD_REVOLUTIONS = 1.0f;
 // Number of revolutions required to make the 90 degrees
-const float REV_TO_MAKE_TURN = 1;
+float REV_TO_MAKE_TURN = 0.6f;
 // Number of revolutions to table edge
-const float SECOND_FORWARD_REVOLUTIONS = 10;
+//float SECOND_FORWARD_REVOLUTIONS = 10;
+// Absolute reverse position
+float REV_POSITION = 0.0f;
 // Number of revolutions required to extend bridge
-const float REVOLUTIONS_TO_EXTEND_BRIDGE = 10;
+float REVOLUTIONS_TO_EXTEND_BRIDGE = 10;
 // Number of revolutions to retract bridge
-const float REVOLUTIONS_TO_RETRACT_BRIDGE = 5;
+float REVOLUTIONS_TO_RETRACT_BRIDGE = 5;
 // Number of reverse revolutions
-const float REVERSE_REVOLUTIONS = 7;
+float REVERSE_REVOLUTIONS = 0.4f;
 // Number of revolutions to cross
-const float REVOLUTIONS_TO_CROSS = 15;
+float REVOLUTIONS_TO_CROSS = 2.19;
 // Number of revolutions to complete task
-const float REVOLUTIONS_TO_COMPLETE_TASK = 20;
+float REVOLUTIONS_TO_COMPLETE_TASK = 0.53f;
+// number of revolutions to complete challenge
+float TASK_COMPLETED = 0;
+// Revolutions to end of crossing
+float END_OF_CROSSING = 0;
 // Velocity of the DC motors to move to 50mm table edge
-const float approach_speed = 0.05f;
+float approach_speed = 0.05f;
 // Threshold of IR analog sensor to stop DC motors
-const float threshold = 20;
+float threshold = 20;
 // Revolutions to reach the edge of the table
-float REV_TO_EDGE = 0;
+float TABLE_EDGE_POSITION  = 0;
 
 // this variable will be toggled via the user button (blue button) and 
 // decides whether to execute the main task or not
@@ -270,7 +276,7 @@ int main()
                 {
                     printf("FIRST_FORWARD_Xmm\n");
                     turn_reached = translation_motion(FIRST_FORWARD_REVOLUTIONS, FORWARD, &position_M1, &position_M2, 0.0f, 0.0f);
-                    
+ 
                     if (turn_reached)
                     {
                        robot_state =  RobotState::MAKING_90_DEGREES_TURN;
@@ -286,37 +292,39 @@ int main()
                   turn_completed =  rotational_motion(position_M1, position_M2, REV_TO_MAKE_TURN);
                    if (turn_completed)
                     {
-                       robot_state =  RobotState::SECOND_FORWARD_Xmm;
+                       TABLE_EDGE_POSITION = position_M1 + REV_TO_MAKE_TURN ;
+                       robot_state =  RobotState::MOVE_TO_50mm; // table edge not 50mm
                     }
                         
                     break;
                 }
 
-                case RobotState::SECOND_FORWARD_Xmm:
-                {
+                // case RobotState::SECOND_FORWARD_Xmm:
+                // {
                  
-                    printf("SECOND_FORWARD_Xmm\n");
+                //     printf("SECOND_FORWARD_Xmm\n");
 
-                    /* ADD AN ANALOG IR POSITION SENSOR*/
+                //     /* ADD AN ANALOG IR POSITION SENSOR*/
 
-                    reached_50mm_from_edge = translation_motion(SECOND_FORWARD_REVOLUTIONS, FORWARD, &position_M1, &position_M2,REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN );
-                    if (reached_50mm_from_edge)
-                    {
-                        reached_50mm_from_edge = 0;
-                        REV_TO_EDGE  = SECOND_FORWARD_REVOLUTIONS;
-                        robot_state =  RobotState::MOVE_TO_50mm;
+                //     reached_50mm_from_edge = translation_motion(SECOND_FORWARD_REVOLUTIONS, FORWARD, &position_M1, &position_M2,REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN );
+                //     if (reached_50mm_from_edge)
+                //     {
+                //         reached_50mm_from_edge = 0;
+                //         REV_TO_EDGE  = SECOND_FORWARD_REVOLUTIONS;
+                //         robot_state =  RobotState::MOVE_TO_50mm;
                        
-                    }
+                //     }
                     
-                    break;
-                }
+                //     break;
+                // }
+
 
                 case RobotState::MOVE_TO_50mm:
                     printf("MOVE TO 50mm\n");
 
                    ir_distance_mV = 1.0e3f * ir_analog_in.read() * 3.3f;
                    ir_distance_cm_candidate = ir_sensor_compensation(ir_distance_mV);
-
+                    
                     if(ir_distance_cm_candidate > 0.0f)
                     {
                         ir_distance_cm = ir_distance_cm_candidate;
@@ -324,8 +332,8 @@ int main()
 
                     if(ir_distance_cm < threshold)
                     {
-                        REV_TO_EDGE  = REV_TO_EDGE  + approach_speed;
-                        edge_detected = translation_motion(REV_TO_EDGE , FORWARD, &position_M1, &position_M2,REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN );
+                        TABLE_EDGE_POSITION  = TABLE_EDGE_POSITION + approach_speed ;
+                        edge_detected = translation_motion(TABLE_EDGE_POSITION, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN );
                         printf("distance: %f\n", ir_distance_cm);
                     }
 
@@ -357,9 +365,15 @@ int main()
                     
                     break;
 
-                case RobotState::REVERSE_Xmm:
+                case RobotState::REVERSE_Xmm:{
                     printf("REVERSE_Xmm\n");
-                    reverse_completed = translation_motion(REVERSE_REVOLUTIONS, REVERSE, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+
+                          
+                    REV_POSITION = TABLE_EDGE_POSITION - REVERSE_REVOLUTIONS;
+
+                    printf(" rev: %f\n", TABLE_EDGE_POSITION);
+
+                    reverse_completed = translation_motion(REV_POSITION, REVERSE, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
                     if (reverse_completed)
                     {
                         reverse_completed = 0;
@@ -367,10 +381,12 @@ int main()
                     }
                    
                     break;
-
+                   }
                 case RobotState::CROSS_BRIDGE:
                     printf("CROSS_BRIDGE\n");
-                     bridge_crossed = translation_motion(REVOLUTIONS_TO_CROSS, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+
+                    END_OF_CROSSING = REV_POSITION + REVOLUTIONS_TO_CROSS;
+                     bridge_crossed = translation_motion(END_OF_CROSSING, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
                     if (bridge_crossed)
                     {
                         bridge_crossed = 0;
@@ -392,7 +408,8 @@ int main()
 
                 case RobotState::THIRD_FORWARD_Xmm:
                     printf("THIRD_FORWARD_Xmm\n");
-                     task_completed = translation_motion(REVOLUTIONS_TO_COMPLETE_TASK, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+                     TASK_COMPLETED = END_OF_CROSSING + REVOLUTIONS_TO_COMPLETE_TASK;
+                     task_completed = translation_motion(TASK_COMPLETED, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
                     if (task_completed)
                     {
                         task_completed = 0;
@@ -467,7 +484,8 @@ uint8_t translation_motion(float revolutions, float direction, float* position_M
 
     if (direction == 1)
     {
-        if ((motor_M1.getRotation() >= revolutions + M1_compensation) && (motor_M2.getRotation() >= revolutions + M2_compensation))
+        if (std::fabs((motor_M1.getRotation() - (revolutions + M1_compensation)))<0.02f && 
+        std::fabs(motor_M2.getRotation() - (revolutions + M2_compensation) < 0.02f))
         {
 
             *position_M1 = motor_M1.getRotation();
@@ -480,7 +498,7 @@ uint8_t translation_motion(float revolutions, float direction, float* position_M
     }
     if (direction == 0)
     {
-      if ((motor_M1.getRotation() <= revolutions + M1_compensation) && (motor_M2.getRotation() <= revolutions + M2_compensation))
+      if (std::fabs(motor_M1.getRotation() - (revolutions + M1_compensation))<0.02f && std::fabs(motor_M2.getRotation() - (revolutions + M2_compensation))<0.02f)
         {   
             *position_M1 = motor_M1.getRotation();
             *position_M2 = motor_M2.getRotation();
@@ -499,7 +517,7 @@ uint8_t rotational_motion(float position_M1, float position_M2, float num_rev)
    // printf(" DC Motor1 Rotations: %f\n", motor_M1.getRotation());
    // printf(" DC Motor2 Rotations: %f\n", motor_M2.getRotation());
 
-    if ((motor_M1.getRotation() >= position_M1 + num_rev) && (motor_M2.getRotation() <= position_M2 - num_rev))
+    if (std::fabs(motor_M1.getRotation() - (position_M1 + num_rev))<0.02f && std::fabs(motor_M2.getRotation() - (position_M2 - num_rev))<0.02f)
     {
         return 1;
     }
@@ -523,7 +541,7 @@ uint8_t extend_bridge (float rev_extension)
 uint8_t retract_bridge (float rev_retraction)
 {
     motor_M3.setRotation(rev_retraction/2);
-     printf(" DC Motor Rotations: %f\n", motor_M3.getRotation());
+    // printf(" DC Motor Rotations: %f\n", motor_M3.getRotation());
     if ((motor_M3.getRotation() <= 2.51f))
     {
         return 1;
