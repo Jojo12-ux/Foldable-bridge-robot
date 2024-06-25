@@ -138,8 +138,10 @@ uint8_t bridge_retracted = 0;
 uint8_t task_completed = 0;
 uint8_t reverse_completed = 0;
 uint8_t edge_detected = 0;
+uint8_t bridge_lengthened = 0;
 
-
+float servo_down = 0.0f;
+float servo_up = 1.0f;
 
 // main() runs in its own thread in the OS
 int main()
@@ -249,6 +251,8 @@ int main()
      // start timer
     main_task_timer.start();
 
+     servo_D0.setNormalisedPulseWidth(servo_up);
+
     while (true) {
         main_task_timer.reset();
 
@@ -339,6 +343,7 @@ int main()
 
                     if(ir_distance_cm > threshold)
                     {
+                        servo_input = servo_up;
                         robot_state =  RobotState::EXTEND_BRIDGE;
                     }
 
@@ -352,19 +357,30 @@ int main()
 
                     break;
 
-                case RobotState::EXTEND_BRIDGE:
+                case RobotState::EXTEND_BRIDGE:{
                     printf("EXTEND_BRIDGE\n");
-
+                    
+                    servo_D0.setNormalisedPulseWidth(servo_input);
+                    
+                    if((servo_input-servo_down) <0.05)
+                    {
+                        bridge_lengthened = 1;
+                    }
+                    else if((servo_input-servo_down) >= 0.05){
+                        servo_input = servo_input - 0.005;
+                        bridge_lengthened = 0;
+                    }
+                    
                     bridge_extended = extend_bridge(REVOLUTIONS_TO_EXTEND_BRIDGE);
                     bridge_extended = 1; //@TODO remove when motor is connected
-                    if (bridge_extended)
+                    if (bridge_extended && bridge_lengthened)
                     {
                         bridge_extended = 0;
                         robot_state =  RobotState::REVERSE_Xmm;
                     }
                     
                     break;
-
+                }
                 case RobotState::REVERSE_Xmm:{
                     printf("REVERSE_Xmm\n");
 
