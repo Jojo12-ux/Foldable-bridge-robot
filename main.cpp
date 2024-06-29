@@ -21,27 +21,27 @@
 // Number of revolutions to 90 degree turn
 float FIRST_FORWARD_REVOLUTIONS = 1.0f;
 // Number of revolutions required to make the 90 degrees
-float REV_TO_MAKE_TURN = 0.6f;
+float REV_TO_MAKE_TURN = 0.7f;
 // Number of revolutions to table edge
 //float SECOND_FORWARD_REVOLUTIONS = 10;
 // Absolute reverse position
-float REV_POSITION = 0.0f;
+float REV_POSITION = 0.15f;
 // Number of revolutions required to extend bridge
 float REVOLUTIONS_TO_EXTEND_BRIDGE = 10;
 // Number of revolutions to retract bridge
 float REVOLUTIONS_TO_RETRACT_BRIDGE = 5;
 // Number of reverse revolutions
-float REVERSE_REVOLUTIONS = 0.4f;
+float REVERSE_REVOLUTIONS = 0; //0.25f;
 // Number of revolutions to cross
-float REVOLUTIONS_TO_CROSS = 2.19;
+float REVOLUTIONS_TO_CROSS = 2.3; 
 // Number of revolutions to complete task
-float REVOLUTIONS_TO_COMPLETE_TASK = 0.53f;
+float REVOLUTIONS_TO_COMPLETE_TASK = 2.0f;//0.53f;
 // number of revolutions to complete challenge
 float TASK_COMPLETED = 0;
 // Revolutions to end of crossing
 float END_OF_CROSSING = 0;
 // Velocity of the DC motors to move to 50mm table edge
-float approach_speed = 0.05f;
+float approach_speed = 0.02f;
 // Threshold of IR analog sensor to stop DC motors
 float threshold = 20;
 // Revolutions to reach the edge of the table
@@ -81,8 +81,8 @@ DCMotor motor_M2(PB_PWM_M2, PB_ENC_A_M2, PB_ENC_B_M2, gear_ratio_M2, kn_M2, volt
 
 // MOTOR 3
 
-const float gear_ratio_M3 = 250.0f; // gear ratio
-const float kn_M3 = 57.0f / 12.0f;  //  [rpm/V]
+const float gear_ratio_M3 = 391.0f; // gear ratio  %@TODO change to 250:1
+const float kn_M3 = 36.0f / 12.0f;  //  [rpm/V]
 DCMotor motor_M3(PB_PWM_M3, PB_ENC_A_M3, PB_ENC_B_M3, gear_ratio_M3, kn_M3, voltage_max);
 
 // ir distance sensor
@@ -139,9 +139,11 @@ uint8_t task_completed = 0;
 uint8_t reverse_completed = 0;
 uint8_t edge_detected = 0;
 uint8_t bridge_lengthened = 0;
+uint8_t bridge_lowered = 0;
+uint8_t bridge_laid = 0;
 
-float servo_down = 0.0f;
-float servo_up = 1.0f;
+float servo_down = 1.0f;
+float servo_up = 0.0f;
 
 // main() runs in its own thread in the OS
 int main()
@@ -155,10 +157,13 @@ int main()
             MAKING_90_DEGREES_TURN,
             SECOND_FORWARD_Xmm,
             MOVE_TO_50mm,
+            REVERSE_TO_LOWER_BRIDGE,
+            LOWER_BRIDGE,
             EXTEND_BRIDGE,
-            REVERSE_Xmm,
+            LIE_BRIDGE,
             CROSS_BRIDGE,
             RETRACT_BRIDGE,
+            FOLD_BRIDGE,
             THIRD_FORWARD_Xmm,
             BUZZER_SLEEP
         } robot_state = RobotState::INITIAL;
@@ -194,9 +199,9 @@ int main()
     // enable the motion planner for smooth movement
     motor_M1.enableMotionPlanner(true);
     // limit max. velocity to half physical possible velocity
-    motor_M1.setMaxVelocity(motor_M1.getMaxPhysicalVelocity() * 0.5f);
+    motor_M1.setMaxVelocity(motor_M1.getMaxPhysicalVelocity() * 0.3f);
     // limit max. acceleration to half of the default acceleration
-    motor_M1.setMaxAcceleration(motor_M1.getMaxAcceleration() * 0.5f);
+    motor_M1.setMaxAcceleration(motor_M1.getMaxAcceleration() * 0.3f);
     //motor_M1.setVelocity(motor_M1.getMaxVelocity() * 0.5jf); // set speed setpoint to half physical possible velocity
 
     // MOTOR M2
@@ -204,9 +209,9 @@ int main()
     // enable the motion planner for smooth movement
     motor_M2.enableMotionPlanner(true);
      // limit max. velocity to half physical possible velocity
-    motor_M2.setMaxVelocity(motor_M2.getMaxPhysicalVelocity() * 0.5f);
+    motor_M2.setMaxVelocity(motor_M2.getMaxPhysicalVelocity() * 0.3f);
     // limit max. acceleration to half of the default acceleration
-    motor_M2.setMaxAcceleration(motor_M2.getMaxAcceleration() * 0.5f);
+    motor_M2.setMaxAcceleration(motor_M2.getMaxAcceleration() * 0.3f);
     // set speed setpoint to half physical possible velocity
     //motor_M2.setVelocity(motor_M2.getMaxVelocity() * 0.5jf); 
 
@@ -215,9 +220,9 @@ int main()
     // enable the motion planner for smooth movement
     motor_M3.enableMotionPlanner(true);
      // limit max. velocity to half physical possible velocity
-    motor_M3.setMaxVelocity(motor_M2.getMaxPhysicalVelocity() * 0.5f);
+    motor_M3.setMaxVelocity(motor_M3.getMaxPhysicalVelocity() * 0.1f);
     // limit max. acceleration to half of the default acceleration
-    motor_M3.setMaxAcceleration(motor_M2.getMaxAcceleration() * 0.5f);
+    motor_M3.setMaxAcceleration(motor_M3.getMaxAcceleration() * 0.1f);
     // set speed setpoint to half physical possible velocity
     //motor_M2.setVelocity(motor_M2.getMaxVelocity() * 0.5jf); 
           
@@ -303,26 +308,6 @@ int main()
                     break;
                 }
 
-                // case RobotState::SECOND_FORWARD_Xmm:
-                // {
-                 
-                //     printf("SECOND_FORWARD_Xmm\n");
-
-                //     /* ADD AN ANALOG IR POSITION SENSOR*/
-
-                //     reached_50mm_from_edge = translation_motion(SECOND_FORWARD_REVOLUTIONS, FORWARD, &position_M1, &position_M2,REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN );
-                //     if (reached_50mm_from_edge)
-                //     {
-                //         reached_50mm_from_edge = 0;
-                //         REV_TO_EDGE  = SECOND_FORWARD_REVOLUTIONS;
-                //         robot_state =  RobotState::MOVE_TO_50mm;
-                       
-                //     }
-                    
-                //     break;
-                // }
-
-
                 case RobotState::MOVE_TO_50mm:
                     printf("MOVE TO 50mm\n");
 
@@ -334,6 +319,7 @@ int main()
                         ir_distance_cm = ir_distance_cm_candidate;
                     }
 
+                    //ir_distance_cm = 20;
                     if(ir_distance_cm < threshold)
                     {
                         TABLE_EDGE_POSITION  = TABLE_EDGE_POSITION + approach_speed ;
@@ -343,62 +329,85 @@ int main()
 
                     if(ir_distance_cm > threshold)
                     {
-                        servo_input = servo_up;
-                        robot_state =  RobotState::EXTEND_BRIDGE;
+                       // printf("distance: %f\n", ir_distance_cm);
+                        
+                        robot_state =  RobotState::REVERSE_TO_LOWER_BRIDGE;
                     }
+                  break;
 
-                    //edge_detected = translation_with_ir_control(ir_distance_cm, velocity, threshold);
-                    //printf("distance: %f\n", ir_distance_cm);
-
-                   // if (edge_detected)
-                    //{
-                      //  robot_state =  RobotState::EXTEND_BRIDGE;
-                    //}
-
-                    break;
-
-                case RobotState::EXTEND_BRIDGE:{
-                    printf("EXTEND_BRIDGE\n");
-                    
-                    servo_D0.setNormalisedPulseWidth(servo_input);
-                    
-                    if((servo_input-servo_down) <0.05)
-                    {
-                        bridge_lengthened = 1;
-                    }
-                    else if((servo_input-servo_down) >= 0.05){
-                        servo_input = servo_input - 0.005;
-                        bridge_lengthened = 0;
-                    }
-                    
-                    bridge_extended = extend_bridge(REVOLUTIONS_TO_EXTEND_BRIDGE);
-                    bridge_extended = 1; //@TODO remove when motor is connected
-                    if (bridge_extended && bridge_lengthened)
-                    {
-                        bridge_extended = 0;
-                        robot_state =  RobotState::REVERSE_Xmm;
-                    }
-                    
-                    break;
-                }
-                case RobotState::REVERSE_Xmm:{
-                    printf("REVERSE_Xmm\n");
+                case RobotState::REVERSE_TO_LOWER_BRIDGE:{
+                    printf("REVERSE_TO_LOWER_BRIDGE\n");
 
                           
                     REV_POSITION = TABLE_EDGE_POSITION - REVERSE_REVOLUTIONS;
 
-                    printf(" rev: %f\n", TABLE_EDGE_POSITION);
+                    //printf(" rev: %f\n", TABLE_EDGE_POSITION);
 
                     reverse_completed = translation_motion(REV_POSITION, REVERSE, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
                     if (reverse_completed)
                     {
                         reverse_completed = 0;
-                        robot_state =  RobotState::CROSS_BRIDGE;
+                        robot_state =  RobotState::LOWER_BRIDGE;
                     }
                    
-                    break;
+                break;
                    }
-                case RobotState::CROSS_BRIDGE:
+
+                case RobotState::LOWER_BRIDGE:{
+                    printf("LOWERING_BRIDGE\n"); 
+
+                    bridge_lowered = extend_bridge(0.3);
+                    if (bridge_lowered)
+                    { 
+                        servo_input = servo_up;
+                        robot_state =  RobotState::EXTEND_BRIDGE;
+                    }
+
+                break;    
+                }
+                case RobotState::EXTEND_BRIDGE:{
+                    printf("EXTEND_BRIDGE\n");                                                                                                                                                       
+                    
+                    servo_D0.setNormalisedPulseWidth(servo_input);
+
+                    //printf("%f\n", (servo_input-servo_down));
+
+                     if((servo_input < servo_down)){
+                        servo_input = servo_input + 0.005;
+                        //bridge_lengthened = 0;
+                    }
+                    
+                    if(std::fabs(servo_input-servo_down) < 0.005)
+                    {
+                        //bridge_lengthened = 1;
+                        robot_state =  RobotState::LIE_BRIDGE;
+                    }
+                    // else if((servo_input > servo_up)){
+                    //     servo_input = servo_input - 0.005;
+                    //     bridge_lengthened = 0;
+                    // }
+                   
+                                                   
+                    break;
+                }
+                
+                case RobotState::LIE_BRIDGE:
+                {
+                    printf("LIE_BRIDGE\n");
+
+                     bridge_laid = extend_bridge(3.0);
+                     
+                     printf("Bridge Laid: %d",bridge_laid);
+                     
+                    if (bridge_laid)
+                    { 
+                        robot_state =  RobotState::CROSS_BRIDGE;
+                        //ThisThread::sleep_for(200ms);
+                    }
+                    break;
+                }
+                    
+                case RobotState::CROSS_BRIDGE:{
                     printf("CROSS_BRIDGE\n");
 
                     END_OF_CROSSING = REV_POSITION + REVOLUTIONS_TO_CROSS;
@@ -410,17 +419,43 @@ int main()
                     }
 
                     break;
-
+                }
                 case RobotState::RETRACT_BRIDGE:
                     printf("RETRACT_BRIDGE\n");
-                     bridge_retracted = retract_bridge(REVOLUTIONS_TO_RETRACT_BRIDGE);
-                     bridge_retracted = 1; //@TODO remove when motor is connected
+                     bridge_retracted = retract_bridge(10);
+                     //bridge_retracted = 1; //@TODO remove when motor is connected
                     if (bridge_retracted)
                     {
                         bridge_retracted = 0;
                         robot_state =  RobotState::THIRD_FORWARD_Xmm;
                     }
                     break;
+
+                case RobotState::FOLD_BRIDGE:{
+                    printf("FOLD_BRIDGE\n");                                                                                                                                                       
+                    
+                    servo_D0.setNormalisedPulseWidth(servo_input);
+
+                    //printf("%f\n", (servo_input-servo_down));
+
+                     if((servo_input < servo_up)){
+                        servo_input = servo_input + 0.005;
+                        //bridge_lengthened = 0;
+                    }
+                    
+                    if(std::fabs(servo_input-servo_up) < 0.005)
+                    {
+                        //bridge_lengthened = 1;
+                        robot_state =  RobotState::THIRD_FORWARD_Xmm;
+                    }
+                    // else if((servo_input > servo_up)){
+                    //     servo_input = servo_input - 0.005;
+                    //     bridge_lengthened = 0;
+                    // }
+                   
+                                                   
+                    break;
+                }
 
                 case RobotState::THIRD_FORWARD_Xmm:
                     printf("THIRD_FORWARD_Xmm\n");
@@ -481,8 +516,11 @@ void toggle_do_execute_main_fcn()
 float ir_sensor_compensation(float ir_distance_mV)
 {
     // insert values that you got from the MATLAB file
-    static const float a = 2.574e+04f;
-    static const float b = -29.37f;
+    // static const float a = 2.574e+04f;
+    // static const float b = -29.37f;
+
+    static const float a = 1.517e+04f;
+    static const float b = 102.1f;
 
     // avoid division by zero by adding a small value to the denominator
     if (ir_distance_mV + b == 0.0f)
@@ -543,10 +581,11 @@ uint8_t rotational_motion(float position_M1, float position_M2, float num_rev)
 uint8_t extend_bridge (float rev_extension)
 {
 
-    motor_M3.setRotation(rev_extension/2); // CHANGE BACK TO MOTOR 2 TODO@
-    // printf(" DC Motor Rotations: %f\n", motor_M2.getRotation());
-    //  printf(" rev_extension :%f", rev_extension);
-    if ((motor_M3.getRotation()>= 4.9f))  //@TODO.. find the issue
+    motor_M3.setRotation(motor_M3.getRotation() + rev_extension); // CHANGE BACK TO MOTOR 2 TODO@
+    printf(" DC Motor Rotations: %f...rev_extension :%f\n", motor_M3.getRotation(), rev_extension);
+    //printf(" rev_extension :%f", rev_extension);
+    //if (std::fabs(motor_M3.getRotation()- (motor_M3.getRotation()+ rev_extension)<0.01))  //@TODO.. find the issue
+    if (motor_M3.getRotation()>= rev_extension) 
     {
         return 1;
     }
@@ -556,32 +595,15 @@ uint8_t extend_bridge (float rev_extension)
 
 uint8_t retract_bridge (float rev_retraction)
 {
-    motor_M3.setRotation(rev_retraction/2);
-    // printf(" DC Motor Rotations: %f\n", motor_M3.getRotation());
-    if ((motor_M3.getRotation() <= 2.51f))
+    motor_M3.setMaxVelocity(motor_M3.getMaxPhysicalVelocity() * 0.5f);
+    motor_M3.setRotation(motor_M3.getRotation()+ rev_retraction);
+    printf(" DC Motor Rotations: %f\n", motor_M3.getRotation());
+    //if (std::fabs(motor_M3.getRotation() - (motor_M3.getRotation()+ rev_retraction))<0.01)
+    if (motor_M3.getRotation() >= (rev_retraction-0.002))
     {
         return 1;
     }
     return 0;
 }
 
-uint8_t translation_with_ir_control(float ir_distance_cm, float velocity, float threshold)
-{   
-    // apply 6V to the motor
-    pwm_M1.write(0.75f);
-    pwm_M2.write(0.75f);
 
-    if(ir_distance_cm < threshold)
-    {
-         pwm_M1.write(velocity);
-         pwm_M2.write(velocity);
-    }
-
-    if(ir_distance_cm >= threshold)
-    {
-         pwm_M1.write(0.5f);
-        pwm_M2.write(0.5f);
-        return 1;
-    }
-    return 0;
-}
