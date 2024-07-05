@@ -16,36 +16,44 @@
 #include "pm2_drivers/DCMotor.h"
 #include <cstdint>
 
-// DEFINITION OF VARIABLES
+              /* DEFINITION OF VARIABLES OF 
+               *REQUIRED REVOLUTIONS TO VARIOUS 
+               *POSTIONS
+              */
 
 // Number of revolutions to 90 degree turn
-float FIRST_FORWARD_REVOLUTIONS = 1.0f;
+float FIRST_FORWARD_REVOLUTIONS = 0.6f;
 // Number of revolutions required to make the 90 degrees
 float REV_TO_MAKE_TURN = 0.7f;
-// Number of revolutions to table edge
-//float SECOND_FORWARD_REVOLUTIONS = 10;
-// Absolute reverse position
-float REV_POSITION = 0.15f;
-// Number of revolutions required to extend bridge
-float REVOLUTIONS_TO_EXTEND_BRIDGE = 10;
-// Number of revolutions to retract bridge
-float REVOLUTIONS_TO_RETRACT_BRIDGE = 5;
 // Number of reverse revolutions
-float REVERSE_REVOLUTIONS = 0; //0.25f;
+float REVERSE_REVOLUTIONS = 0.35; //0.25f;
 // Number of revolutions to cross
 float REVOLUTIONS_TO_CROSS = 2.3; 
 // Number of revolutions to complete task
 float REVOLUTIONS_TO_COMPLETE_TASK = 2.0f;//0.53f;
+//Number of revs to align bridge to the edge
+float MINI_FORWARD_REVS = 0.2f;
+//Number of reverse revs to lift bridge from table edge
+float MINI_REVERSE_REVS = 0.2f;
+// Revs to place bridge on table 1 edge
+float LOWER_BRIDGE_REVS = 1.0f;
+// Revs to completely put bridge down.
+float LIE_BRIDGE_REVS = 3.0f;
+
+                 /* HOLDERS FOR POSTIONS WHERE ROBOT NEEDS TO MOVE*/ 
+
 // number of revolutions to complete challenge
+float MINI_REVERSE_POS = 0.0f;
+// End of task revs
 float TASK_COMPLETED = 0;
 // Revolutions to end of crossing
 float END_OF_CROSSING = 0;
-// Velocity of the DC motors to move to 50mm table edge
-float approach_speed = 0.02f;
-// Threshold of IR analog sensor to stop DC motors
-float threshold = 20;
 // Revolutions to reach the edge of the table
 float TABLE_EDGE_POSITION  = 0;
+// Mini forward position
+float MINI_FORWARD_POS = 0;
+// Absolute reverse position
+float REV_POSITION = 0.0f;
 
 // this variable will be toggled via the user button (blue button) and 
 // decides whether to execute the main task or not
@@ -128,19 +136,27 @@ uint8_t retract_bridge (float rev_retraction);
 // Using analog IR position sensor to detect table edge
 uint8_t translation_with_ir_control(float ir_distance_cm, float velocity, float threshold);
 
-// Definition and declaration of variables
+// Velocity of the DC motors to move to 50mm table edge
+float approach_speed = 0.02f;
+// Threshold of IR analog sensor to stop DC motors
+float threshold = 20;
+
+               /* VARIABLES FOR GOING TO NEXT CASES*/
+               
 uint8_t turn_reached = 0;
 uint8_t turn_completed = 0;
 uint8_t reached_50mm_from_edge = 0;
 uint8_t bridge_extended = 0;
 uint8_t bridge_crossed = 0;
-uint8_t bridge_retracted = 0;
+uint8_t tension_on_threads = 0;
 uint8_t task_completed = 0;
 uint8_t reverse_completed = 0;
 uint8_t edge_detected = 0;
 uint8_t bridge_lengthened = 0;
 uint8_t bridge_lowered = 0;
 uint8_t bridge_laid = 0;
+uint8_t  miniforward_completed = 0;
+
 
 float servo_down = 1.0f;
 float servo_up = 0.0f;
@@ -159,10 +175,12 @@ int main()
             MOVE_TO_50mm,
             REVERSE_TO_LOWER_BRIDGE,
             LOWER_BRIDGE,
+            MINI_FORWARD,
             EXTEND_BRIDGE,
             LIE_BRIDGE,
             CROSS_BRIDGE,
-            RETRACT_BRIDGE,
+            GET_TENSION_ON_THREADS,
+            PULL_BRIDGE_TO_TABLE2,
             FOLD_BRIDGE,
             THIRD_FORWARD_Xmm,
             BUZZER_SLEEP
@@ -319,7 +337,6 @@ int main()
                         ir_distance_cm = ir_distance_cm_candidate;
                     }
 
-                    //ir_distance_cm = 20;
                     if(ir_distance_cm < threshold)
                     {
                         TABLE_EDGE_POSITION  = TABLE_EDGE_POSITION + approach_speed ;
@@ -341,8 +358,7 @@ int main()
                           
                     REV_POSITION = TABLE_EDGE_POSITION - REVERSE_REVOLUTIONS;
 
-                    //printf(" rev: %f\n", TABLE_EDGE_POSITION);
-
+                
                     reverse_completed = translation_motion(REV_POSITION, REVERSE, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
                     if (reverse_completed)
                     {
@@ -356,36 +372,38 @@ int main()
                 case RobotState::LOWER_BRIDGE:{
                     printf("LOWERING_BRIDGE\n"); 
 
-                    bridge_lowered = extend_bridge(0.3);
+                    bridge_lowered = extend_bridge(LOWER_BRIDGE_REVS);   // Will modify this if need be
                     if (bridge_lowered)
                     { 
                         servo_input = servo_up;
-                        robot_state =  RobotState::EXTEND_BRIDGE;
+                        robot_state =  RobotState::MINI_FORWARD;
                     }
 
                 break;    
+                }
+                case RobotState::MINI_FORWARD:{
+
+                    MINI_FORWARD_POS = REV_POSITION + MINI_FORWARD_REVS;
+                    miniforward_completed = translation_motion(MINI_FORWARD_POS, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+                    
+                    if(miniforward_completed){
+                        robot_state =  RobotState::EXTEND_BRIDGE;
+                    }
+                    break;
                 }
                 case RobotState::EXTEND_BRIDGE:{
                     printf("EXTEND_BRIDGE\n");                                                                                                                                                       
                     
                     servo_D0.setNormalisedPulseWidth(servo_input);
 
-                    //printf("%f\n", (servo_input-servo_down));
-
                      if((servo_input < servo_down)){
                         servo_input = servo_input + 0.005;
-                        //bridge_lengthened = 0;
                     }
                     
                     if(std::fabs(servo_input-servo_down) < 0.005)
                     {
-                        //bridge_lengthened = 1;
                         robot_state =  RobotState::LIE_BRIDGE;
                     }
-                    // else if((servo_input > servo_up)){
-                    //     servo_input = servo_input - 0.005;
-                    //     bridge_lengthened = 0;
-                    // }
                    
                                                    
                     break;
@@ -395,41 +413,58 @@ int main()
                 {
                     printf("LIE_BRIDGE\n");
 
-                     bridge_laid = extend_bridge(3.0);
+                     bridge_laid = extend_bridge(LIE_BRIDGE_REVS);    // Will modify this if need be
                      
                      printf("Bridge Laid: %d",bridge_laid);
                      
                     if (bridge_laid)
                     { 
                         robot_state =  RobotState::CROSS_BRIDGE;
-                        //ThisThread::sleep_for(200ms);
+                        
                     }
                     break;
-                }
-                    
+                }  
                 case RobotState::CROSS_BRIDGE:{
                     printf("CROSS_BRIDGE\n");
 
-                    END_OF_CROSSING = REV_POSITION + REVOLUTIONS_TO_CROSS;
-                     bridge_crossed = translation_motion(END_OF_CROSSING, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+                    END_OF_CROSSING = MINI_FORWARD_POS + REVOLUTIONS_TO_CROSS;
+                    bridge_crossed = translation_motion(END_OF_CROSSING, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
                     if (bridge_crossed)
                     {
                         bridge_crossed = 0;
-                        robot_state =  RobotState::RETRACT_BRIDGE;
+                        robot_state =  RobotState::GET_TENSION_ON_THREADS;
                     }
 
                     break;
                 }
-                case RobotState::RETRACT_BRIDGE:
+                case GET_TENSION_ON_THREADS:{
+
                     printf("RETRACT_BRIDGE\n");
-                     bridge_retracted = retract_bridge(10);
+                     tension_on_threads = retract_bridge(LIE_BRIDGE_REVS);
                      //bridge_retracted = 1; //@TODO remove when motor is connected
-                    if (bridge_retracted)
+                    if (tension_on_threads)
                     {
-                        bridge_retracted = 0;
-                        robot_state =  RobotState::THIRD_FORWARD_Xmm;
+                        //mini reverse
+                        MINI_REVERSE_POS = END_OF_CROSSING - MINI_REVERSE_REVS;
+                        reverse_completed = translation_motion(MINI_REVERSE_POS, REVERSE, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+
+                        robot_state =  RobotState::PULL_BRIDGE_TO_TABLE2;
+                    }
+                
+                    break;
+                }
+
+                case RobotState::PULL_BRIDGE_TO_TABLE2:{
+                    printf("THIRD_FORWARD_Xmm\n");
+                     TASK_COMPLETED = MINI_REVERSE_POS + REVOLUTIONS_TO_COMPLETE_TASK;
+                     task_completed = translation_motion(TASK_COMPLETED, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
+                    if (task_completed)
+                    {
+                        task_completed = 0;
+                        robot_state =  RobotState::BUZZER_SLEEP;
                     }
                     break;
+                }
 
                 case RobotState::FOLD_BRIDGE:{
                     printf("FOLD_BRIDGE\n");                                                                                                                                                       
@@ -446,7 +481,7 @@ int main()
                     if(std::fabs(servo_input-servo_up) < 0.005)
                     {
                         //bridge_lengthened = 1;
-                        robot_state =  RobotState::THIRD_FORWARD_Xmm;
+                        robot_state =  RobotState::BUZZER_SLEEP;
                     }
                     // else if((servo_input > servo_up)){
                     //     servo_input = servo_input - 0.005;
@@ -456,18 +491,6 @@ int main()
                                                    
                     break;
                 }
-
-                case RobotState::THIRD_FORWARD_Xmm:
-                    printf("THIRD_FORWARD_Xmm\n");
-                     TASK_COMPLETED = END_OF_CROSSING + REVOLUTIONS_TO_COMPLETE_TASK;
-                     task_completed = translation_motion(TASK_COMPLETED, FORWARD, &position_M1, &position_M2, REV_TO_MAKE_TURN, -REV_TO_MAKE_TURN);
-                    if (task_completed)
-                    {
-                        task_completed = 0;
-                        robot_state =  RobotState::BUZZER_SLEEP;
-                    }
-                    break;
-
                 case RobotState::BUZZER_SLEEP:
                     printf("BUZZER_SLEEP\n");
 
@@ -593,13 +616,14 @@ uint8_t extend_bridge (float rev_extension)
     return 0;
 }
 
+// Goes in the opposite direction.
 uint8_t retract_bridge (float rev_retraction)
 {
     motor_M3.setMaxVelocity(motor_M3.getMaxPhysicalVelocity() * 0.5f);
-    motor_M3.setRotation(motor_M3.getRotation()+ rev_retraction);
+    motor_M3.setRotation(motor_M3.getRotation()- rev_retraction);
     printf(" DC Motor Rotations: %f\n", motor_M3.getRotation());
     //if (std::fabs(motor_M3.getRotation() - (motor_M3.getRotation()+ rev_retraction))<0.01)
-    if (motor_M3.getRotation() >= (rev_retraction-0.002))
+    if (motor_M3.getRotation() <= (rev_retraction+0.002))
     {
         return 1;
     }
